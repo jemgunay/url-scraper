@@ -4,6 +4,8 @@ import (
 	"flag"
 	"log"
 
+	"go.uber.org/zap"
+
 	"jemgunay/url-scraper/pkg/config"
 	"jemgunay/url-scraper/pkg/ingest"
 	"jemgunay/url-scraper/pkg/server"
@@ -22,12 +24,12 @@ func main() {
 	logger := conf.Logger
 
 	storage := store.New(logger, 50)
-
 	ingester := ingest.New(logger, storage)
 
 	// start HTTP server
+	logger.Info("starting HTTP server", zap.Int("port", conf.Port))
 	httpServer := server.New(logger, conf.Port, ingester, storage)
 	if err := httpServer.Run(); err != nil {
-		logger.Fatal("failed to initialise")
+		logger.Warn("HTTP server shut down")
 	}
 }

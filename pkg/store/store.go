@@ -16,8 +16,8 @@ type Store struct {
 	recordCapacity int
 
 	mu           *sync.RWMutex
-	recordLookup map[string]ports.Record
-	recordList   []ports.Record
+	recordLookup map[string]*ports.Record
+	recordList   []*ports.Record
 }
 
 func New(logger config.Logger, recordCapacity int) *Store {
@@ -26,9 +26,9 @@ func New(logger config.Logger, recordCapacity int) *Store {
 		recordCapacity: recordCapacity,
 
 		mu:           &sync.RWMutex{},
-		recordLookup: make(map[string]ports.Record, recordCapacity),
+		recordLookup: make(map[string]*ports.Record, recordCapacity),
 		// capacity+1 as we will append one slot over capacity before truncating
-		recordList: make([]ports.Record, 0, recordCapacity+1),
+		recordList: make([]*ports.Record, 0, recordCapacity+1),
 	}
 }
 
@@ -40,21 +40,31 @@ func (s *Store) Store(key string) {
 	// so that we don't have to search the ports.Record list
 	val, ok := s.recordLookup[key]
 	if !ok {
-		val.Key = key
+		val = &ports.Record{
+			Key: key,
+		}
 	}
 	val.LastUpserted = time.Now().UTC()
 	val.SubmitCount++
 	s.recordLookup[key] = val
 
-	// append to Key list, sort by upsert date, and truncate to maximum
+	if ok {
+		return
+	}
+
+	// append to key list, sort by upsert date, and truncate to maximum
 	// capacity; if at capacity, we'll truncate the oldest ports.Record
 	s.recordList = append(s.recordList, val)
 
 	sort.Slice(s.recordList, func(i, j int) bool {
-		return s.recordList[i].LastUpserted.Before(s.recordList[j].LastUpserted)
+		return s.recordList[i].LastUpserted.After(s.recordList[j].LastUpserted)
 	})
 
 	if len(s.recordList) > s.recordCapacity {
+		// remove purged item from map
+		recordToPurge := s.recordList[s.recordCapacity]
+		delete(s.recordLookup, recordToPurge.Key)
+		// truncate slice to purge item from list
 		s.recordList = s.recordList[:s.recordCapacity]
 	}
 }
@@ -66,7 +76,7 @@ func (s *Store) Fetch() []ports.Record {
 	// copy so that the consumer doesn't mutate the original store list
 	recordListCopy := make([]ports.Record, 0, len(s.recordList))
 	for _, record := range s.recordList {
-		recordListCopy = append(recordListCopy, record)
+		recordListCopy = append(recordListCopy, *record)
 	}
 
 	// TODO: implement sort bits + limit opts

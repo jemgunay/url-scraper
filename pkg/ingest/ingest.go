@@ -1,6 +1,8 @@
 package ingest
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -28,7 +30,7 @@ func New(logger config.Logger, storage ports.Storer) *Processor {
 		httpClient: &http.Client{
 			Timeout: time.Second * 10,
 		},
-		insertQueue: make(chan string),
+		insertQueue: make(chan string, 10), // TODO: ingestionQueueCapacity config
 	}
 
 	go processor.startPoller()
@@ -43,9 +45,11 @@ func (s *Processor) startPoller() {
 		select {
 		case key := <-s.insertQueue:
 			s.logger.Debug("inserting URL into store", zap.String("key", key))
-			// attempt to download Key
+
+			// attempt to download key
+
 			// if download fails, discard it
-			// if success, persist in store\
+			// if success, persist in store
 			s.storage.Store(key)
 
 		case <-ticker.C:
@@ -62,8 +66,16 @@ func (s *Processor) startPoller() {
 	}
 }
 
-func (s *Processor) Ingest() {
-
+// Ingest attempts to ingest a URL into the Processor. If the processor queue is
+// experiencing backpressure, the call will block until the context is
+// cancelled.
+func (s *Processor) Ingest(ctx context.Context, url string) error {
+	select {
+	case s.insertQueue <- url:
+		return nil
+	case <-ctx.Done():
+		return errors.New("request to enqueue expired")
+	}
 }
 
 type scrapeDuration struct {

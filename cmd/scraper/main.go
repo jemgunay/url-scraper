@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"log"
+	"net/http"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -24,7 +26,10 @@ func main() {
 	logger := conf.Logger
 
 	storage := store.New(logger, 50)
-	ingester := ingest.New(logger, storage)
+	httpClient := &http.Client{
+		Timeout: time.Second * time.Duration(conf.TimeoutSeconds),
+	}
+	ingester := ingest.New(logger, storage, httpClient)
 
 	// start HTTP server
 	logger.Info("starting HTTP server", zap.Int("port", conf.Port))

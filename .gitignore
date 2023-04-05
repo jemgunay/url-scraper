@@ -14,5 +14,5 @@
 # IDE files
 .idea
 
-# binaries
-cmd/daemon/daemon
+# App binary
+cmd/scraper/scraper

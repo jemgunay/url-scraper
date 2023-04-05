@@ -13,6 +13,7 @@ import (
 	"jemgunay/url-scraper/pkg/ports"
 )
 
+// Server provides a RESTful HTTP server for performing URL-related operations.
 type Server struct {
 	logger   config.Logger
 	ingester ports.Ingester
@@ -21,6 +22,7 @@ type Server struct {
 	httpServer *http.Server
 }
 
+// New initialises a new HTTP URL API server.
 func New(logger config.Logger, port int, ingester ports.Ingester, storage ports.Storer) *Server {
 	server := &Server{
 		logger:   logger,
@@ -28,14 +30,15 @@ func New(logger config.Logger, port int, ingester ports.Ingester, storage ports.
 		storage:  storage,
 	}
 
+	// disable gin debug logs
 	gin.SetMode(gin.ReleaseMode)
 
 	// register routes in router
 	router := gin.Default()
-	v1 := router.Group("/v1")
-	api := v1.Group("/api")
-	api.GET("/urls", server.GetURL)
-	api.POST("/urls", server.AddURL)
+	api := router.Group("/api")
+	v1 := api.Group("/v1")
+	v1.GET("/urls", server.GetURL)
+	v1.POST("/urls", server.AddURL)
 
 	server.httpServer = &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
@@ -50,22 +53,40 @@ func New(logger config.Logger, port int, ingester ports.Ingester, storage ports.
 }
 
 // Run binds the HTTP server. It is a blocking operation and always returns an
-// error on shutdown.
+// error on shutdown (on success or failure).
 func (s *Server) Run() error {
 	return s.httpServer.ListenAndServe()
 }
 
+// GetURL fetches the 50 most recently stored URLs with their submission count
+// in JSON form. It accepts query parameters for sort criteria (sortBy=age/
+// count, default age) and sort order (sortOrder=asc/desc, default desc).
 func (s *Server) GetURL(c *gin.Context) {
-	// TODO: read directly from storage, only 50
-	records := s.storage.Fetch()
+	sortBy := ports.Age
+	sortByRaw, ok := c.GetQuery("sortBy")
+	if ok {
+		sortBy = ports.SortBy(sortByRaw)
+		if err := sortBy.Validate(); err != nil {
+			const msg = "invalid sortBy query param provided"
+			s.logger.Error(msg, zap.Error(err))
+			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+			return
+		}
+	}
 
-	// preview, err := a.blog.GetPostPreviews(ctx)
-	// if err != nil {
-	// 	s.logger.Error()
-	// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch posts"})
-	// 	return
-	// }
+	sortOrder := ports.Descending
+	sortOrderRaw, ok := c.GetQuery("sortOrder")
+	if ok {
+		sortOrder = ports.SortOrder(sortOrderRaw)
+		if err := sortOrder.Validate(); err != nil {
+			const msg = "invalid sortOrder query param provided"
+			s.logger.Error(msg, zap.Error(err))
+			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+			return
+		}
+	}
 
+	records := s.storage.Fetch(50, sortBy, sortOrder)
 	c.JSON(http.StatusOK, records)
 }
 
@@ -73,9 +94,13 @@ type addPayload struct {
 	URL string `json:"url"`
 }
 
+// AddURL accepts a URL to insert into the store. The storage operation is
+// asynchronous and successful storage is not guaranteed despite an Accepted
+// response status code.
 func (s *Server) AddURL(c *gin.Context) {
+	// set a context timeout to prevent ingester backpressure from starving the
+	// server
 	ctx := c.Request.Context()
-	// set a context timeout in case ingestion is saturated/takes too long
 	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 

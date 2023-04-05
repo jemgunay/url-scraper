@@ -14,7 +14,13 @@ import (
 type Config struct {
 	Port   int  `yaml:"port"`
 	Debug  bool `yaml:"debug"`
+	Client `yaml:"client"`
 	Logger `yaml:"-"`
+}
+
+// Client represents the HTTP client config.
+type Client struct {
+	TimeoutSeconds int `yaml:"timeout"`
 }
 
 // New initialises a Config from a yaml file on disk. It also initialises a

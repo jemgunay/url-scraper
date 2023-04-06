@@ -80,7 +80,7 @@ func (s *Processor) Ingest(ctx context.Context, url string) error {
 
 func (s *Processor) refreshBenchmarks() {
 	// get 10 most submitted URLs from store and pre-queue them into a buffer
-	records := s.storage.Fetch(10, ports.Age, ports.Descending)
+	records := s.storage.Fetch(10, ports.Count, ports.Descending)
 
 	recordsIn := make(chan string, len(records))
 	for _, record := range records {
